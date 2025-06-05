@@ -1,25 +1,39 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+const fetchUsers = async (page = 1) => {
+    try {
+      setLoading(true);
+      // const response = await axios.get(`${API_BASE_URL}/users?page=${page}&limit=6`);
+      const response = await axios.get(`${API_BASE_URL}/users`, {
+         params: { page: page, limit: 6 }
+      });
 
-import React from 'react';
-const FormDemo = () => {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    image: null,
-    category: '',
-    rating: 5
-  });
-  const [errors, setErrors] = useState({});
-  const [imagePreview, setImagePreview] = useState('');
+      // const data = await response.json();
+      
+      if (response.data.success) {
+        setUsers(response.data.data);
+        setPagination(response.data.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      setSubmitMessage('Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const categories = [
-    { value: '', label: 'Select a category' },
-    { value: 'technology', label: 'Technology' },
-    { value: 'design', label: 'Design' },
-    { value: 'marketing', label: 'Marketing' },
-    { value: 'business', label: 'Business' },
-    { value: 'other', label: 'Other' }
-  ];
+  const fetchStats = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/stats`);
+      // const data = await response.json();
+      
+      if (response.data.success) {
+        setStats(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
 
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -54,7 +68,6 @@ const FormDemo = () => {
       [name]: value
     }));
 
-    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -66,17 +79,31 @@ const FormDemo = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setErrors(prev => ({
+          ...prev,
+          image: 'File size must be less than 5MB'
+        }));
+        return;
+      }
+
       setFormData(prev => ({
         ...prev,
         image: file
       }));
 
-      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result);
       };
       reader.readAsDataURL(file);
+
+      if (errors.image) {
+        setErrors(prev => ({
+          ...prev,
+          image: ''
+        }));
+      }
     }
   };
 
@@ -97,6 +124,51 @@ const FormDemo = () => {
     setCurrentPage(1);
   };
 
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+    setSubmitMessage('');
+
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append('name', formData.name);
+      formDataToSend.append('email', formData.email);
+      formDataToSend.append('category', formData.category);
+      formDataToSend.append('rating', formData.rating.toString());
+      
+      if (formData.image) {
+        formDataToSend.append('image', formData.image);
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/user`, formDataToSend);
+
+      // const data = await response.json();
+
+      if (response.data.success) {
+        setSubmitMessage('User created successfully!');
+        setTimeout(() => {
+          setCurrentPage(3);
+        }, 1500);
+      } else {
+        setSubmitMessage(response.data.message || 'Failed to create user');
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      if (error.response) {
+        // Server responded with error status
+        setSubmitMessage(error.response.data.message || 'Server error. Please try again.');
+      } else if (error.request) {
+        // Network error
+        setSubmitMessage('Network error. Please check your connection.');
+      } else {
+        setSubmitMessage('An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleReset = () => {
     setFormData({
       name: '',
@@ -108,8 +180,29 @@ const FormDemo = () => {
     setErrors({});
     setImagePreview('');
     setCurrentPage(1);
+    setSubmitMessage('');
   };
 
+  const deleteUser = async (userId) => {
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/user/${userId}`
+        );
+
+      // const data = await response.json();
+      
+      if (response.data.success) {
+        fetchUsers();
+        fetchStats();
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      if (error.response) {
+        console.error('Delete error:', error.response.data.message);
+      }
+    }
+  };
+
+  // Form Page
   if (currentPage === 1) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
@@ -121,7 +214,6 @@ const FormDemo = () => {
             </div>
 
             <div className="space-y-6">
-              {/* Name Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Full Name *
@@ -141,7 +233,6 @@ const FormDemo = () => {
                 )}
               </div>
 
-              {/* Email Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address *
@@ -161,19 +252,19 @@ const FormDemo = () => {
                 )}
               </div>
 
-              {/* Image Upload */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Profile Image
                 </label>
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                  />
-                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {errors.image && (
+                  <p className="mt-1 text-sm text-red-600">{errors.image}</p>
+                )}
                 {imagePreview && (
                   <div className="mt-3">
                     <img
@@ -185,7 +276,6 @@ const FormDemo = () => {
                 )}
               </div>
 
-              {/* Dropdown Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Category *
@@ -209,7 +299,6 @@ const FormDemo = () => {
                 )}
               </div>
 
-              {/* Slider */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Rating: {formData.rating}/10
@@ -232,7 +321,6 @@ const FormDemo = () => {
                 </div>
               </div>
 
-              {/* Next Button */}
               <button
                 type="button"
                 onClick={handleNext}
@@ -240,11 +328,114 @@ const FormDemo = () => {
               >
                 Next →
               </button>
+               <button
+                  type="button"
+                  onClick={() => setCurrentPage(3)}
+                  className="w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                >
+                  View Existing Users
+                </button>
             </div>
           </div>
         </div>
       </div>
     );
   }
-}
-export default FormDemo;
+
+  // Summary Page
+  if (currentPage === 2) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 py-8 px-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">Form Summary</h1>
+              <p className="text-gray-600">Review your information before submitting</p>
+            </div>
+
+            {submitMessage && (
+              <div className={`mb-6 p-4 rounded-lg ${
+                submitMessage.includes('successfully') 
+                  ? 'bg-green-100 text-green-700 border border-green-200' 
+                  : 'bg-red-100 text-red-700 border border-red-200'
+              }`}>
+                {submitMessage}
+              </div>
+            )}
+
+            <div className="space-y-6">
+              <div className="flex items-center space-x-6 p-6 bg-gray-50 rounded-xl">
+                {imagePreview ? (
+                  <img
+                    src={imagePreview}
+                    alt="Profile"
+                    className="w-24 h-24 object-cover rounded-full border-4 border-white shadow-lg"
+                  />
+                ) : (
+                  <div className="w-24 h-24 bg-gray-300 rounded-full flex items-center justify-center">
+                    <span className="text-gray-500 text-sm">No Image</span>
+                  </div>
+                )}
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">{formData.name}</h2>
+                  <p className="text-gray-600">{formData.email}</p>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="bg-blue-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-blue-800 mb-2">Category</h3>
+                  <p className="text-blue-700 capitalize">
+                    {categories.find(cat => cat.value === formData.category)?.label || 'Not selected'}
+                  </p>
+                </div>
+
+                <div className="bg-purple-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-purple-800 mb-2">Rating</h3>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex">
+                      {[...Array(10)].map((_, i) => (
+                        <div
+                          key={i}
+                          className={`w-3 h-3 rounded-full mr-1 ${
+                            i < formData.rating ? 'bg-purple-500' : 'bg-gray-300'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-purple-700 font-semibold">
+                      {formData.rating}/10
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex space-x-4 pt-6">
+                <button
+                  onClick={handleBack}
+                  disabled={loading}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                >
+                  ← Back to Edit
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Form'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
