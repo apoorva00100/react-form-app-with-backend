@@ -1,4 +1,4 @@
-# Form Demo Application
+# Full stack react submition form
 
 A modern, multi-step React form application with user management, image uploads, and real-time statistics dashboard.
 
