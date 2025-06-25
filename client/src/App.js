@@ -1,26 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-
+import axios from 'axios'; // Import axios
 
 const FormDemo = () => {
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1); // Start on form page
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     image: null,
     category: '',
-    rating: 5
+    rating: 5,
+    gender: '', // New field
+    bio: '',     // New field
+    isProUser: false, // New field
+    customId: '' // New field for user-provided ID
   });
   const [errors, setErrors] = useState({});
   const [imagePreview, setImagePreview] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
   const [users, setUsers] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [pagination, setPagination] = useState({});
-
-  const API_BASE_URL = 'http://localhost:5000/api';
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    ratingStats: { average: 0 },
+    categoryStats: {}
+  });
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false
+  });
+  const [searchIdInput, setSearchIdInput] = useState(''); // State for input field value
+  const [appliedSearchId, setAppliedSearchId] = useState(''); // State for applied search query
 
   const categories = [
     { value: '', label: 'Select a category' },
@@ -31,48 +42,47 @@ const FormDemo = () => {
     { value: 'other', label: 'Other' }
   ];
 
-  // Fetch users when component mounts or page changes to results
+  // New genders array
+  const genders = [
+    { value: '', label: 'Select Gender' },
+    { value: 'male', label: 'Male' },
+    { value: 'female', label: 'Female' },
+    { value: 'other', label: 'Other' },
+    { value: 'prefer_not_to_say', label: 'Prefer not to say' }
+  ];
+
+  // Calculate stats from users array
+  const calculateStats = (userList) => {
+    if (userList.length === 0) {
+      return {
+        totalUsers: 0,
+        ratingStats: { average: 0 },
+        categoryStats: {}
+      };
+    }
+
+    const totalRating = userList.reduce((sum, user) => sum + user.rating, 0);
+    const avgRating = (totalRating / userList.length).toFixed(1);
+    
+    const categoryStats = userList.reduce((acc, user) => {
+      acc[user.category] = (acc[user.category] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      totalUsers: userList.length,
+      ratingStats: { average: avgRating },
+      categoryStats
+    };
+  };
+
+  // Load users when component mounts or page changes to results
   useEffect(() => {
     if (currentPage === 3) {
-      fetchUsers();
-      fetchStats();
+      const newStats = calculateStats(users);
+      setStats(newStats);
     }
-  }, [currentPage]);
-
-  const fetchUsers = async (page = 1) => {
-    try {
-      setLoading(true);
-      // const response = await axios.get(`${API_BASE_URL}/users?page=${page}&limit=6`);
-      const response = await axios.get(`${API_BASE_URL}/users`, {
-         params: { page: page, limit: 6 }
-      });
-
-      // const data = await response.json();
-      
-      if (response.data.success) {
-        setUsers(response.data.data);
-        setPagination(response.data.pagination);
-      }
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      setSubmitMessage('Failed to load users');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/stats`);
-      // const data = await response.json();
-      
-      if (response.data.success) {
-        setStats(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  };
+  }, [currentPage, users]); // Re-calculate stats when users array or page changes to results
 
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -96,15 +106,30 @@ const FormDemo = () => {
       newErrors.category = 'Please select a category';
     }
 
+    if (!formData.gender) { // New validation
+      newErrors.gender = 'Please select a gender';
+    }
+
+    if (formData.bio.length > 500) { // New validation
+      newErrors.bio = 'Bio cannot exceed 500 characters';
+    }
+
+    // Validate custom ID if provided
+    if (formData.customId.trim()) {
+      if (users.some(user => user.id === formData.customId.trim())) {
+        newErrors.customId = 'This ID is already taken. Please choose another or leave blank for auto-generation.';
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: type === 'checkbox' ? checked : value
     }));
 
     if (errors[name]) {
@@ -118,10 +143,17 @@ const FormDemo = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
         setErrors(prev => ({
           ...prev,
           image: 'File size must be less than 5MB'
+        }));
+        // Clear the file input if size limit is exceeded
+        e.target.value = ''; 
+        setImagePreview('');
+        setFormData(prev => ({
+          ...prev,
+          image: null
         }));
         return;
       }
@@ -143,6 +175,12 @@ const FormDemo = () => {
           image: ''
         }));
       }
+    } else { // If user cancels file selection
+      setFormData(prev => ({
+        ...prev,
+        image: null
+      }));
+      setImagePreview('');
     }
   };
 
@@ -169,40 +207,41 @@ const FormDemo = () => {
     setLoading(true);
     setSubmitMessage('');
 
+    // Determine the final ID: use customId if provided, otherwise generate a new one
+    const finalId = formData.customId.trim() || (Date.now().toString() + Math.floor(Math.random() * 10).toString());
+
+    // Create new user object with all fields
+    const newUser = {
+      id: finalId, // Use the final ID
+      name: formData.name,
+      email: formData.email,
+      category: formData.category,
+      rating: formData.rating,
+      gender: formData.gender,
+      bio: formData.bio,
+      isProUser: formData.isProUser,
+      imageUrl: imagePreview || null,
+      createdAt: new Date().toISOString()
+    };
+
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('name', formData.name);
-      formDataToSend.append('email', formData.email);
-      formDataToSend.append('category', formData.category);
-      formDataToSend.append('rating', formData.rating.toString());
+      // Simulate API call with axios
+      // In a real application, you would replace this with an actual axios.post to your backend
+      await new Promise(resolve => setTimeout(resolve, 1500)); 
+      // Example of how you would use axios:
+      // const response = await axios.post('/api/users', newUser);
+      // if (response.status === 200) { ... }
+
+      setUsers(prev => [newUser, ...prev]);
+      setSubmitMessage('User created successfully!');
       
-      if (formData.image) {
-        formDataToSend.append('image', formData.image);
-      }
+      setTimeout(() => {
+        setCurrentPage(3); // Navigate to results page after successful submission
+      }, 1500);
 
-      const response = await axios.post(`${API_BASE_URL}/user`, formDataToSend);
-
-      // const data = await response.json();
-
-      if (response.data.success) {
-        setSubmitMessage('User created successfully!');
-        setTimeout(() => {
-          setCurrentPage(3);
-        }, 1500);
-      } else {
-        setSubmitMessage(response.data.message || 'Failed to create user');
-      }
     } catch (error) {
       console.error('Error submitting form:', error);
-      if (error.response) {
-        // Server responded with error status
-        setSubmitMessage(error.response.data.message || 'Server error. Please try again.');
-      } else if (error.request) {
-        // Network error
-        setSubmitMessage('Network error. Please check your connection.');
-      } else {
-        setSubmitMessage('An unexpected error occurred. Please try again.');
-      }
+      setSubmitMessage('Error submitting form. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -214,37 +253,82 @@ const FormDemo = () => {
       email: '',
       image: null,
       category: '',
-      rating: 5
+      rating: 5,
+      gender: '',
+      bio: '',
+      isProUser: false,
+      customId: '' // Clear custom ID on reset
     });
     setErrors({});
     setImagePreview('');
     setCurrentPage(1);
     setSubmitMessage('');
+    setSearchIdInput(''); // Clear search input
+    setAppliedSearchId(''); // Clear applied search
   };
 
-  const deleteUser = async (userId) => {
-    try {
-      const response = await axios.delete(`${API_BASE_URL}/user/${userId}`
-        );
-
-      // const data = await response.json();
-      
-      if (response.data.success) {
-        fetchUsers();
-        fetchStats();
-      }
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      if (error.response) {
-        console.error('Delete error:', error.response.data.message);
-      }
-    }
+  const deleteUser = (userId) => {
+    setUsers(prev => prev.filter(user => user.id !== userId));
   };
+
+  // Function to apply the search filter
+  const applySearch = () => {
+    setAppliedSearchId(searchIdInput.trim());
+    setPagination(prev => ({...prev, currentPage: 1})); // Reset pagination to first page
+  };
+
+  const getPaginatedUsers = () => {
+    // Filter users based on appliedSearchId using exact match
+    const filteredUsers = appliedSearchId.trim() 
+      ? users.filter(user => user.id === appliedSearchId.trim()) // Changed to exact match
+      : users;
+
+    const startIndex = (pagination.currentPage - 1) * 6;
+    const endIndex = startIndex + 6;
+    return filteredUsers.slice(startIndex, endIndex);
+  };
+
+  // Updates pagination details based on current user list length
+  const updatePagination = () => {
+    const filteredUsers = appliedSearchId.trim() 
+      ? users.filter(user => user.id === appliedSearchId.trim()) // Changed to exact match
+      : users;
+    const totalPages = Math.ceil(filteredUsers.length / 6);
+    setPagination(prev => ({
+      currentPage: Math.min(prev.currentPage, totalPages || 1), // Adjust current page if it's now beyond total pages
+      totalPages: totalPages,
+      hasNextPage: prev.currentPage < totalPages,
+      hasPrevPage: prev.currentPage > 1
+    }));
+  };
+
+  // Re-calculate pagination whenever users array length or appliedSearchId changes
+  useEffect(() => {
+    updatePagination();
+  }, [users.length, appliedSearchId]);
+
+  const handlePageChange = (newPage) => {
+    setPagination(prev => ({
+      ...prev,
+      currentPage: newPage,
+      hasNextPage: newPage < prev.totalPages,
+      hasPrevPage: newPage > 1
+    }));
+  };
+
+  // New function to refresh data (clears search and re-renders all users)
+  const refreshData = () => {
+    setSearchIdInput(''); // Clear search input
+    setAppliedSearchId(''); // Clear applied search query
+    setUsers([...users]); // Create a new array reference to trigger useEffect
+    setPagination(prev => ({...prev, currentPage: 1})); // Reset pagination to first page
+  };
+
 
   // Form Page
   if (currentPage === 1) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4 font-inter">
         <div className="max-w-md mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center mb-8">
@@ -253,12 +337,34 @@ const FormDemo = () => {
             </div>
 
             <div className="space-y-6">
+              {/* New Unique ID Input Field */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="customId" className="block text-sm font-medium text-gray-700 mb-2">
+                  Unique ID (Optional)
+                </label>
+                <input
+                  type="text"
+                  id="customId"
+                  name="customId"
+                  value={formData.customId}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                    errors.customId ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Leave blank for auto-generation (14 digits)"
+                />
+                {errors.customId && (
+                  <p className="mt-1 text-sm text-red-600">{errors.customId}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                   Full Name *
                 </label>
                 <input
                   type="text"
+                  id="name"
                   name="name"
                   value={formData.name}
                   onChange={handleInputChange}
@@ -273,11 +379,12 @@ const FormDemo = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address *
                 </label>
                 <input
                   type="email"
+                  id="email"
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
@@ -292,11 +399,12 @@ const FormDemo = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="image" className="block text-sm font-medium text-gray-700 mb-2">
                   Profile Image
                 </label>
                 <input
                   type="file"
+                  id="image"
                   accept="image/*"
                   onChange={handleImageChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
@@ -316,10 +424,11 @@ const FormDemo = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
                   Category *
                 </label>
                 <select
+                  id="category"
                   name="category"
                   value={formData.category}
                   onChange={handleInputChange}
@@ -336,6 +445,68 @@ const FormDemo = () => {
                 {errors.category && (
                   <p className="mt-1 text-sm text-red-600">{errors.category}</p>
                 )}
+              </div>
+
+              <div>
+                <label htmlFor="gender" className="block text-sm font-medium text-gray-700 mb-2">
+                  Gender *
+                </label>
+                <select
+                  id="gender"
+                  name="gender"
+                  value={formData.gender}
+                  onChange={handleInputChange}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                    errors.gender ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  {genders.map(g => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+                {errors.gender && (
+                  <p className="mt-1 text-sm text-red-600">{errors.gender}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="bio" className="block text-sm font-medium text-gray-700 mb-2">
+                  Bio (Max 500 characters)
+                </label>
+                <textarea
+                  id="bio"
+                  name="bio"
+                  value={formData.bio}
+                  onChange={handleInputChange}
+                  rows="4"
+                  maxLength="500"
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-y ${
+                    errors.bio ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Tell us a little about yourself..."
+                ></textarea>
+                <p className="mt-1 text-sm text-gray-500 text-right">
+                  {formData.bio.length}/500
+                </p>
+                {errors.bio && (
+                  <p className="mt-1 text-sm text-red-600">{errors.bio}</p>
+                )}
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="isProUser"
+                  name="isProUser"
+                  checked={formData.isProUser}
+                  onChange={handleInputChange}
+                  className="h-5 w-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                />
+                <label htmlFor="isProUser" className="ml-2 block text-sm text-gray-900">
+                  Are you a Pro User?
+                </label>
               </div>
 
               <div>
@@ -360,20 +531,22 @@ const FormDemo = () => {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleNext}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                Next →
-              </button>
-               <button
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                >
+                  Next →
+                </button>
+                <button
                   type="button"
                   onClick={() => setCurrentPage(3)}
                   className="w-full bg-gray-600 hover:bg-gray-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 >
-                  View Existing Users
+                  View Existing Users ({users.length})
                 </button>
+              </div>
             </div>
           </div>
         </div>
@@ -384,7 +557,7 @@ const FormDemo = () => {
   // Summary Page
   if (currentPage === 2) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 py-8 px-4">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 py-8 px-4 font-inter">
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center mb-8">
@@ -447,7 +620,40 @@ const FormDemo = () => {
                     </span>
                   </div>
                 </div>
+
+                {/* New Gender Field */}
+                <div className="bg-yellow-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-yellow-800 mb-2">Gender</h3>
+                  <p className="text-yellow-700 capitalize">
+                    {genders.find(g => g.value === formData.gender)?.label || 'Not selected'}
+                  </p>
+                </div>
+
+                {/* New Pro User Field */}
+                <div className="bg-red-50 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-red-800 mb-2">Pro User</h3>
+                  <p className="text-red-700">
+                    {formData.isProUser ? 'Yes' : 'No'}
+                  </p>
+                </div>
               </div>
+
+              {/* New Bio Field */}
+              <div className="bg-indigo-50 p-6 rounded-xl">
+                <h3 className="text-lg font-semibold text-indigo-800 mb-2">Bio</h3>
+                <p className="text-indigo-700 text-sm">
+                  {formData.bio || 'No bio provided.'}
+                </p>
+              </div>
+              
+              {formData.customId.trim() && ( // Display custom ID if provided
+                <div className="bg-gray-100 p-6 rounded-xl">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Provided ID</h3>
+                  <p className="text-gray-700 text-sm">
+                    {formData.customId.trim()}
+                  </p>
+                </div>
+              )}
 
               <div className="flex space-x-4 pt-6">
                 <button
@@ -480,8 +686,10 @@ const FormDemo = () => {
   }
 
   // Results Page
+  const paginatedUsers = getPaginatedUsers();
+  
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 py-8 px-4 font-inter">
       <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
@@ -489,62 +697,79 @@ const FormDemo = () => {
             <p className="text-gray-600">All submitted users and statistics</p>
           </div>
 
-          {/* Statistics Dashboard */}
-          {stats && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white">
-                <h3 className="text-lg font-semibold mb-2">Total Users</h3>
-                <p className="text-3xl font-bold">{stats.totalUsers}</p>
-              </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white">
-                <h3 className="text-lg font-semibold mb-2">Average Rating</h3>
-                <p className="text-3xl font-bold">{stats.ratingStats.average}/10</p>
-              </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white">
-                <h3 className="text-lg font-semibold mb-2">Top Category</h3>
-                <p className="text-xl font-bold capitalize">
-                  {Object.keys(stats.categoryStats).length > 0 
-                    ? Object.keys(stats.categoryStats).reduce((a, b) => 
-                        stats.categoryStats[a] > stats.categoryStats[b] ? a : b
-                      )
-                    : 'None'
-                  }
-                </p>
-              </div>
-            </div>
-          )}
+          {/* Search Input and Button */}
+          <div className="mb-6 flex flex-col sm:flex-row justify-center items-center space-y-2 sm:space-y-0 sm:space-x-2">
+            <input
+              type="text"
+              placeholder="Enter exact User ID..."
+              value={searchIdInput}
+              onChange={(e) => setSearchIdInput(e.target.value)}
+              onKeyDown={(e) => { // Allow pressing Enter to search
+                if (e.key === 'Enter') {
+                  applySearch();
+                }
+              }}
+              className="w-full max-w-md px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors shadow-sm"
+            />
+            <button
+              onClick={applySearch}
+              className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 shadow-md"
+            >
+              Search
+            </button>
+          </div>
+          <p className="text-center text-sm text-gray-500 mb-4">
+            Enter the full unique ID for an exact match.
+          </p>
 
-          {/* Loading State */}
-          {loading && (
-            <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+          {/* Statistics Dashboard */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white shadow-md">
+              <h3 className="text-lg font-semibold mb-2">Total Users</h3>
+              <p className="text-3xl font-bold">{stats.totalUsers}</p>
             </div>
-          )}
+            <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white shadow-md">
+              <h3 className="text-lg font-semibold mb-2">Average Rating</h3>
+              <p className="text-3xl font-bold">{stats.ratingStats.average}/10</p>
+            </div>
+            <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white shadow-md">
+              <h3 className="text-lg font-semibold mb-2">Top Category</h3>
+              <p className="text-xl font-bold capitalize">
+                {Object.keys(stats.categoryStats).length > 0 
+                  ? Object.keys(stats.categoryStats).reduce((a, b) => 
+                      stats.categoryStats[a] > stats.categoryStats[b] ? a : b
+                    )
+                  : 'None'
+                }
+              </p>
+            </div>
+          </div>
 
           {/* Users Grid */}
-          {!loading && users.length > 0 && (
+          {paginatedUsers.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {users.map((user) => (
-                <div key={user.id} className="bg-gray-50 rounded-xl p-6 hover:shadow-lg transition-shadow">
-                  <div className="flex items-center space-x-4 mb-4">
+              {paginatedUsers.map((user) => (
+                <div key={user.id} className="bg-gray-50 rounded-xl p-6 hover:shadow-lg transition-shadow border border-gray-100">
+                  <div className="flex items-start space-x-4 mb-4">
                     {user.imageUrl ? (
                       <img
                         src={user.imageUrl}
                         alt={user.name}
-                        className="w-16 h-16 object-cover rounded-full border-2 border-gray-200"
+                        className="w-16 h-16 object-cover rounded-full border-2 border-gray-200 shrink-0"
                       />
                     ) : (
-                      <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center">
-                        <span className="text-gray-500 text-xs">No Image</span>
+                      <div className="w-16 h-16 bg-gray-300 rounded-full flex items-center justify-center shrink-0">
+                        <span className="text-gray-500 text-xs text-center">No Image</span>
                       </div>
                     )}
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-800">{user.name}</h3>
-                      <p className="text-gray-600 text-sm">{user.email}</p>
+                      <h3 className="font-semibold text-gray-800 text-lg">{user.name}</h3>
+                      <p className="text-gray-600 text-sm break-all">{user.email}</p>
+                      <p className="text-gray-500 text-xs mt-1">ID: {user.id}</p> {/* Displaying the new ID */}
                     </div>
                   </div>
                   
-                  <div className="space-y-2">
+                  <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Category:</span>
                       <span className="font-medium capitalize">{user.category}</span>
@@ -554,8 +779,24 @@ const FormDemo = () => {
                       <span className="font-medium">{user.rating}/10</span>
                     </div>
                     <div className="flex justify-between">
+                      <span className="text-gray-600">Gender:</span>
+                      <span className="font-medium capitalize">
+                        {genders.find(g => g.value === user.gender)?.label || 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Pro User:</span>
+                      <span className="font-medium">{user.isProUser ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-gray-600 mb-1">Bio:</span>
+                      <p className="text-gray-700 text-xs italic line-clamp-2">
+                        {user.bio || 'No bio provided.'}
+                      </p>
+                    </div>
+                    <div className="flex justify-between">
                       <span className="text-gray-600">Created:</span>
-                      <span className="font-medium text-sm">
+                      <span className="font-medium text-xs">
                         {new Date(user.createdAt).toLocaleDateString()}
                       </span>
                     </div>
@@ -563,39 +804,36 @@ const FormDemo = () => {
 
                   <button
                     onClick={() => deleteUser(user.id)}
-                    className="mt-4 w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg transition-colors text-sm"
+                    className="mt-4 w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded-lg transition-colors text-sm shadow-sm hover:shadow-md"
                   >
                     Delete User
                   </button>
                 </div>
               ))}
             </div>
-          )}
-
-          {/* Empty State */}
-          {!loading && users.length === 0 && (
+          ) : (
             <div className="text-center py-12">
-              <div className="text-gray-400 text-6xl mb-4">📝</div>
-              <h3 className="text-xl font-semibold text-gray-600 mb-2">No users found</h3>
-              <p className="text-gray-500">Submit the form to see users here</p>
+              <div className="text-gray-400 text-6xl mb-4">🔎</div>
+              <h3 className="text-xl font-semibold text-gray-600 mb-2">No users found matching your search.</h3>
+              <p className="text-gray-500">Try a different ID or clear the search.</p>
             </div>
           )}
 
           {/* Pagination */}
           {pagination.totalPages > 1 && (
-            <div className="flex justify-center space-x-2">
+            <div className="flex justify-center space-x-2 mb-8">
               <button
-                onClick={() => fetchUsers(pagination.currentPage - 1)}
+                onClick={() => handlePageChange(pagination.currentPage - 1)}
                 disabled={!pagination.hasPrevPage}
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-colors"
               >
                 Previous
               </button>
-              <span className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg">
+              <span className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-medium">
                 Page {pagination.currentPage} of {pagination.totalPages}
               </span>
               <button
-                onClick={() => fetchUsers(pagination.currentPage + 1)}
+                onClick={() => handlePageChange(pagination.currentPage + 1)}
                 disabled={!pagination.hasNextPage}
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 rounded-lg transition-colors"
               >
@@ -605,19 +843,16 @@ const FormDemo = () => {
           )}
 
           {/* Action Buttons */}
-          <div className="flex justify-center space-x-4 mt-8">
+          <div className="flex justify-center space-x-4 flex-wrap gap-4">
             <button
               onClick={handleReset}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 shadow-md"
             >
               Create New User
             </button>
             <button
-              onClick={() => {
-                fetchUsers();
-                fetchStats();
-              }}
-              className="bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+              onClick={refreshData}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-lg transition-colors focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 shadow-md"
             >
               Refresh Data
             </button>
