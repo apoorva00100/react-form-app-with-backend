@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'; // Import useCallback
-import axios from 'axios'; // Import axios
+import React, { useState, useEffect, useCallback } from 'react';
+// import axios from 'axios'; // axios import is no longer needed for purely local simulation
 
 const FormDemo = () => {
   const [currentPage, setCurrentPage] = useState(1); // Start on form page
@@ -219,31 +219,17 @@ const FormDemo = () => {
       createdAt: new Date().toISOString()
     };
 
-    try {
-      // Using axios for a dummy POST request to satisfy the linter.
-      // In a real app, this would be your actual backend API endpoint.
-      const response = await axios.post('https://jsonplaceholder.typicode.com/posts', newUser, {
-        timeout: 1500 // Simulate network delay and ensure a quick response for demo
-      });
-
-      // You can check response.status or response.data if it were a real API
-      if (response.status === 201 || response.status === 200) {
-        setUsers(prev => [newUser, ...prev]); // Add the user to local state
-        setSubmitMessage('User created successfully!');
-      } else {
-        setSubmitMessage('Failed to create user. Server responded with an error.');
-      }
+    // Simulate API call delay using setTimeout (purely client-side)
+    setTimeout(() => {
+      setUsers(prev => [newUser, ...prev]);
+      setSubmitMessage('User created successfully!');
+      setLoading(false);
       
+      // Delay navigation slightly to show success message
       setTimeout(() => {
         setCurrentPage(3);
       }, 1500);
-
-    } catch (error) {
-      console.error('Error submitting form:', error);
-      setSubmitMessage(`Error submitting form: ${error.message || 'Please try again.'}`);
-    } finally {
-      setLoading(false);
-    }
+    }, 1500); // Simulated network delay
   };
 
   const handleReset = () => {
@@ -285,7 +271,6 @@ const FormDemo = () => {
     return filteredUsers.slice(startIndex, endIndex);
   };
 
-  // Memoize updatePagination using useCallback
   const updatePagination = useCallback(() => {
     const filteredUsers = appliedSearchId.trim() 
       ? users.filter(user => user.id === appliedSearchId.trim())
@@ -297,12 +282,11 @@ const FormDemo = () => {
       hasNextPage: prev.currentPage < totalPages,
       hasPrevPage: prev.currentPage > 1
     }));
-  }, [users, appliedSearchId, setPagination]); // Dependencies for useCallback
+  }, [users, appliedSearchId, setPagination]);
 
-  // Re-calculate pagination whenever users array length or appliedSearchId changes
   useEffect(() => {
-    updatePagination(); // Now updatePagination is a stable function due to useCallback
-  }, [users.length, appliedSearchId, updatePagination]); // Add updatePagination to dependency array
+    updatePagination();
+  }, [users.length, appliedSearchId, updatePagination]);
 
   const handlePageChange = (newPage) => {
     setPagination(prev => ({
